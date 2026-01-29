@@ -69,6 +69,28 @@ func isDoltBackend() bool {
 	return cfg.GetBackend() == configfile.BackendDolt
 }
 
+// isDoltServerMode returns true if Dolt is configured in server mode (not embedded).
+// Server mode supports multi-process access via dolt sql-server.
+func isDoltServerMode() bool {
+	beadsDir := ""
+	if dbPath != "" {
+		beadsDir = filepath.Dir(dbPath)
+	} else if found := beads.FindDatabasePath(); found != "" {
+		beadsDir = filepath.Dir(found)
+	} else {
+		beadsDir = beads.FindBeadsDir()
+	}
+	if beadsDir == "" {
+		return false
+	}
+
+	cfg, err := configfile.Load(beadsDir)
+	if err != nil || cfg == nil {
+		return false
+	}
+	return cfg.IsDoltServerMode()
+}
+
 // singleProcessOnlyBackend returns true if the current workspace backend is configured
 // as single-process-only (currently Dolt embedded).
 //
@@ -97,9 +119,9 @@ func singleProcessOnlyBackend() bool {
 
 // shouldAutoStartDaemon checks if daemon auto-start is enabled
 func shouldAutoStartDaemon() bool {
-	// Dolt backend doesn't need daemon - it has its own sync via dolt sql-server.
-	// This applies to both embedded and server modes.
-	if isDoltBackend() {
+	// Dolt embedded mode doesn't support daemon (single-process only).
+	// Dolt server mode supports multi-process, so daemon can run.
+	if isDoltBackend() && !isDoltServerMode() {
 		return false
 	}
 
