@@ -508,14 +508,19 @@ Use --closed to purge ALL closed wisps (regardless of age). This is the
 fastest way to reclaim space from accumulated wisp bloat. Safe by default:
 requires --force to actually delete.
 
+GATE SAFETY: Open gate wisps (gh:pr, timer, etc.) are EXCLUDED from age-based
+GC by default. These can legitimately wait for extended periods (PRs may take
+days to merge). Use --include-gates to override this safety.
+
 Note: This uses time-based cleanup, appropriate for ephemeral wisps.
 For graph-pressure staleness detection (blocking other work), see 'bd mol stale'.
 
 Examples:
-  bd mol wisp gc                       # Clean abandoned wisps (default: 1h threshold)
+  bd mol wisp gc                       # Clean abandoned wisps (excludes open gates)
   bd mol wisp gc --dry-run             # Preview what would be cleaned
   bd mol wisp gc --age 24h             # Custom age threshold
   bd mol wisp gc --all                 # Also clean closed wisps older than threshold
+  bd mol wisp gc --include-gates       # Include open gate wisps (use with caution)
   bd mol wisp gc --closed              # Preview closed wisp deletion
   bd mol wisp gc --closed --force      # Delete all closed wisps
   bd mol wisp gc --closed --dry-run    # Explicit dry-run (same as no --force)`,
@@ -540,6 +545,7 @@ func runWispGC(cmd *cobra.Command, args []string) {
 	cleanAll, _ := cmd.Flags().GetBool("all")
 	closedMode, _ := cmd.Flags().GetBool("closed")
 	force, _ := cmd.Flags().GetBool("force")
+	includeGates, _ := cmd.Flags().GetBool("include-gates")
 
 	// Parse age threshold
 	ageThreshold := time.Hour // Default 1 hour
@@ -584,6 +590,12 @@ func runWispGC(cmd *cobra.Command, args []string) {
 
 		// Skip closed issues unless --all is specified
 		if issue.Status == types.StatusClosed && !cleanAll {
+			continue
+		}
+
+		// Skip open gates (async coordination) unless --include-gates is specified
+		// Gate wisps can legitimately be waiting for external events (PRs, timers) for extended periods
+		if !includeGates && issue.IssueType == "gate" && issue.Status != types.StatusClosed {
 			continue
 		}
 
@@ -744,7 +756,7 @@ func init() {
 	wispGCCmd.Flags().Bool("all", false, "Also clean closed wisps older than threshold")
 	wispGCCmd.Flags().Bool("closed", false, "Delete all closed wisps (ignores --age threshold)")
 	wispGCCmd.Flags().BoolP("force", "f", false, "Actually delete (default: preview only)")
-
+	wispGCCmd.Flags().Bool("include-gates", false, "Include open gate wisps in GC (default: exclude them)")
 	wispCmd.AddCommand(wispCreateCmd)
 	wispCmd.AddCommand(wispListCmd)
 	wispCmd.AddCommand(wispGCCmd)
